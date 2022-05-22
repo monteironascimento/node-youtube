@@ -1,0 +1,123 @@
+ const Youtube = require("youtube-api")
+ , fs = require("fs")
+ , readJson = require("r-json")
+ , Json = require("r-json")
+ , Lien = require("lien")
+ , Logger = require("bug-killer")
+ , opn = require("opn")
+ , prettyBytes = require("pretty-bytes")
+ , puppeteer = require("puppeteer")
+ ;
+
+
+// I downloaded the file from OAuth2 -> Download JSON
+const CREDENTIALS = readJson(`${__dirname}/credentials.json`);
+
+// Init lien server
+let server = new Lien({
+ host: "localhost"
+, port: 3055
+});
+
+// Authenticate
+// You can access the Youtube resources via OAuth2 only.
+// https://developers.google.com/youtube/v3/guides/moving_to_oauth#service_accounts
+
+let oauth = null //fs.readFile(`${__dirname}/oauth`)
+
+
+oauth = Youtube.authenticate({
+ type: "oauth"
+, client_id: CREDENTIALS.web.client_id
+, client_secret: CREDENTIALS.web.client_secret
+, redirect_url: CREDENTIALS.web.redirect_uris[0]
+});
+
+//fs.writeFile(`${__dirname}/oauth`, oauth, () => {})
+const consentUrl = oauth.generateAuthUrl({
+    access_type: "offline"
+   , scope: ["https://www.googleapis.com/auth/youtube.upload"]
+   })
+
+console.log(`> [youtube-robot] Please give your consent: ${consentUrl}`)
+
+aprovarSetenca(consentUrl)
+//opn(consentUrl);
+
+// Handle oauth2 callback
+server.addPage("/oauth2callback", lien => {
+ Logger.log("Trying to get the token using the following code: " + lien.query.code);
+
+ oauth.getToken(lien.query.code, (err, tokens) => {
+    console.log(tokens)
+     if (err) {
+         lien.lien(err, 400);
+         return Logger.log(err);
+     }
+
+     Logger.log("Got the tokens.");
+
+     oauth.setCredentials(tokens);
+
+     lien.end("The video is being uploaded. Check out the logs in the terminal.");
+     console.log(`${__dirname}/movie.mp4`);
+
+     var req = Youtube.videos.insert({
+         resource: {
+             // Video title and description
+             snippet: {
+                 title: "Testing YoutTube API NodeJS module"
+               , description: "Test video upload via YouTube API"
+             }
+             // I don't want to spam my subscribers
+           , status: {
+                 privacyStatus: "private"
+             }
+         }
+         // This is for the callback function
+       , part: "snippet,status"
+
+         // Create the readable stream to upload the video
+       , media: {
+           
+             body: fs.createReadStream(`${__dirname}/movie.mp4`)
+         }
+     }, (err, data) => {
+         console.log("Done.");
+         console.log(data.data.id)
+         process.exit();
+     });
+
+     setInterval(function () {
+         //Logger.log(`${prettyBytes(req.req.connection._bytesDispatched)} bytes uploaded.`);
+     }, 250);
+ });
+});
+
+
+async function aprovarSetenca(url){
+
+    const browser = await puppeteer.launch({
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        headless: false, //(process.env.NODE_ENV === 'production' ? true : false),
+        slowMo: 20,
+      });
+
+      try {
+        
+        const page = await browser.newPage();
+        page.setDefaultNavigationTimeout(1000000);
+        await page.setViewport({ width: 1000, height: 600 });
+        await page.goto(url);
+        await page.waitForSelector('#identifierId');
+        await page.type('#identifierId', 'monteiroblog0@gmail.com');
+        await page.keyboard.press(String.fromCharCode(13)); 
+        await page.waitForNavigation();
+        await page.type('#pass', 'Monteiro01*');
+        //await page.click(`[type="submit"]`);
+        //await page.waitForNavigation();
+        //await page.keyboard.press(String.fromCharCode(13)); 
+      }catch(err){
+
+      }
+}
